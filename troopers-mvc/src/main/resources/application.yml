@@ -2,3 +2,10 @@ server:
   port: 8000
   servlet:
     context-path: /mvc
+
+spring:
+  session:
+    store-type: redis
+    redis:
+      flush-mode: on-save
+      namespace: spring:session

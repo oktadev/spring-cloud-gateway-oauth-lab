@@ -35,6 +35,8 @@ spring:
           uri: http://localhost:8000/
           predicates:
             - Path=/mvc/**
+          filters:
+            - SaveSession=
 
 
   session:

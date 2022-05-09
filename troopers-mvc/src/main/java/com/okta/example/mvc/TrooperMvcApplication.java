@@ -45,7 +45,6 @@ public class TrooperMvcApplication {
     @Bean
     public CookieSerializer cookieSerializer() {
         DefaultCookieSerializer cookieSerializer = new DefaultCookieSerializer();
-        cookieSerializer.setCookieName("CUSTOM-SESSION");
         cookieSerializer.setUseBase64Encoding(false);
         return cookieSerializer;
     }
