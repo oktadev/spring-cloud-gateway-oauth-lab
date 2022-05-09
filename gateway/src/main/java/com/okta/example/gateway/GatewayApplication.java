@@ -43,6 +43,19 @@ public class GatewayApplication {
             .build();
     }
 
+    @Bean
+    public GlobalFilter customGlobalFilter() {
+        return (exchange, chain) -> exchange.getPrincipal()
+            .map(Principal::getName)
+            .map(userName -> {
+                //adds header to proxied request
+                exchange.getRequest().mutate().header("X-Forward-User", userName).build();
+                return exchange;
+            })
+            .flatMap(chain::filter);
+    }
+
+
     @RestController
     static class UserResource {
 
