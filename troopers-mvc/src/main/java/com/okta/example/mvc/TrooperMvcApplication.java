@@ -7,6 +7,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.preauth.RequestHeaderAuthenticationFilter;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.session.web.http.CookieSerializer;
 import org.springframework.session.web.http.DefaultCookieSerializer;
 
@@ -24,11 +25,18 @@ public class TrooperMvcApplication {
         filter.setAuthenticationManager(authenticationManager());
         filter.setPrincipalRequestHeader("X-Forward-User");
 
+        CookieCsrfTokenRepository csrfTokenRepository = new CookieCsrfTokenRepository();
+        csrfTokenRepository.setCookiePath("/");
+
         return http
+            // Form login, see log file for generated password, username is... `user`
+            .formLogin().and()
+
             .authorizeRequests()
-                .anyRequest().authenticated()
+            .anyRequest().authenticated()
             .and()
             .addFilter(filter)
+            .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository))
             .requestCache().disable()
             .build();
     }

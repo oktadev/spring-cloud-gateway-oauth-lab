@@ -33,12 +33,17 @@ public class GatewayApplication {
     @Bean
     SecurityWebFilterChain springWebFilterChain(ServerHttpSecurity http) throws Exception {
 
+        CookieServerCsrfTokenRepository csrfTokenRepository = new CookieServerCsrfTokenRepository();
+        csrfTokenRepository.setCookiePath("/");
+
         return http
             .oauth2Login().and()
 
+            .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository))
+
             .authorizeExchange()
-                .anyExchange().authenticated()
-                .and()
+            .anyExchange().authenticated()
+            .and()
 
             .build();
     }
