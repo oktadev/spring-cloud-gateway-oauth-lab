@@ -21,6 +21,18 @@ spring:
               - openid
               - profile
 
+  cloud:
+    gateway:
+      routes:
+        - id: troopers-api
+          uri: http://localhost:8888/
+          predicates:
+            - Path=/api/**
+          filters:
+            # Include the access token as a Bearer token
+            - TokenRelay=
+
+
   session:
     store-type: redis
     redis:
