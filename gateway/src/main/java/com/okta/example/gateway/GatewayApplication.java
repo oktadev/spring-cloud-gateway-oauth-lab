@@ -51,4 +51,14 @@ public class GatewayApplication {
             return Map.of("user", token.getPrincipal().getAttributes());
         }
     }
+
+    @Controller
+    static class IndexRedirect {
+        @GetMapping("/")
+        public Mono<ResponseEntity<String>> index() {
+            return Mono.just(new HttpHeaders())
+                .doOnNext(header -> header.add("Location", "/mvc/"))
+                .map(header -> new ResponseEntity<>(null, header, HttpStatus.MOVED_PERMANENTLY));
+        }
+    }
 }

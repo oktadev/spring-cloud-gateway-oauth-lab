@@ -31,6 +31,10 @@ spring:
           filters:
             # Include the access token as a Bearer token
             - TokenRelay=
+        - id: troopers-mvc
+          uri: http://localhost:8000/
+          predicates:
+            - Path=/mvc/**
 
 
   session:
