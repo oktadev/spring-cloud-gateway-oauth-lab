@@ -1,0 +1,17 @@
+server:
+  port: 8888
+  servlet:
+    context-path: /api
+
+# Project secrets are in .okta.env in the root of the project
+.env:
+  directory: ../
+  filename: .okta.env
+  ignoreIfMissing: false
+
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${env.ISSUER}

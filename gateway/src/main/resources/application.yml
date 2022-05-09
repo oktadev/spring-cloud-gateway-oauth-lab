@@ -1,0 +1,28 @@
+# Project secrets are in .okta.env in the root of the project
+.env:
+  directory: ../
+  filename: .okta.env
+  ignoreIfMissing: false
+
+spring:
+  security:
+    oauth2:
+      client:
+        provider:
+          okta:
+            issuer-uri: ${env.ISSUER}
+            user-name-attribute: email
+        registration:
+          okta:
+            client-id: ${env.CLIENT_ID}
+            client-secret: ${env.CLIENT_SECRET}
+            scope:
+              - email
+              - openid
+              - profile
+
+  session:
+    store-type: redis
+    redis:
+      flush-mode: on-save
+      namespace: spring:session

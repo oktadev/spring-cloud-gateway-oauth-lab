@@ -1,0 +1,51 @@
+<!DOCTYPE HTML>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Stormtroopers</title>
+    <div th:replace="fragments/header :: header-css"/>
+</head>
+
+<body>
+
+<div th:replace="fragments/header :: header"/>
+
+<main role="main" class="container">
+
+    <div class="page-body">
+
+        <div class="trooper-panel"
+             th:style="'background:url('+ @{/images/stormtrooper_background_640.jpg} +') no-repeat; margin-left: auto; margin-right: auto; width: 640px; height: 480px;'">
+            <h1>Stormtrooper: <span th:text="${trooper.id}">NAME</span></h1>
+
+            <div class="panel-body trooper-panel-body">
+
+                <div class="d-flex flex-row-reverse">
+                    <div class="p-2">
+                        <table  class="table trooper-table-font">
+                            <tr>
+                                <th>Class:</th>
+                                <th th:text="${trooper.id}">ID</th>
+                            </tr>
+                            <tr>
+                                <th>Species:</th>
+                                <th th:text="${trooper.species}">SPECIES</th>
+                            </tr>
+                            <tr>
+                                <th>Planet of Origin:</th>
+                                <th th:text="${trooper.planetOfOrigin}">PLANET</th>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+</main>
+<!-- /.container -->
+
+<div th:replace="fragments/footer :: footer"/>
+
+</body>
+</html>

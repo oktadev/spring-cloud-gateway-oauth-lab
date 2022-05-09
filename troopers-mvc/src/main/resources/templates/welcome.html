@@ -1,0 +1,33 @@
+<!DOCTYPE HTML>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Stormtrooper 'Enlistment' Application</title>
+    <div th:replace="fragments/header :: header-css"/>
+</head>
+
+<body>
+
+<div th:replace="fragments/header :: header"/>
+
+<main role="main" class="container">
+
+    <div class="page-header">
+        <h1>Stormtrooper 'Enlistment' Application</h1>
+    </div>
+    <div class="page-body">
+
+        <div class="list-group bg-dark">
+            <a href="#" class="list-group-item disabled active">Actions</a>
+            <a th:href="@{/troopers}" class="list-group-item">Show Stormtroopers</a>
+            <a href="https://www.google.com/search?q=Operational+Status+of+Starkiller+Base"
+               class="list-group-item">Operational Status of Starkiller Base</a>
+        </div>
+    </div>
+
+</main>
+<!-- /.container -->
+
+<div th:replace="fragments/footer :: footer"/>
+
+</body>
+</html>
