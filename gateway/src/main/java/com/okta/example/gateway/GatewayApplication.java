@@ -31,7 +31,10 @@ public class GatewayApplication {
     }
 
     @Bean
-    SecurityWebFilterChain springWebFilterChain(ServerHttpSecurity http) throws Exception {
+    SecurityWebFilterChain springWebFilterChain(ServerHttpSecurity http, ReactiveClientRegistrationRepository clientRegistrationRepository) throws Exception {
+
+        OidcClientInitiatedServerLogoutSuccessHandler logoutSuccessHandler = new OidcClientInitiatedServerLogoutSuccessHandler(clientRegistrationRepository);
+        logoutSuccessHandler.setPostLogoutRedirectUri("{baseUrl}/");
 
         CookieServerCsrfTokenRepository csrfTokenRepository = new CookieServerCsrfTokenRepository();
         csrfTokenRepository.setCookiePath("/");
@@ -41,8 +44,12 @@ public class GatewayApplication {
 
             .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository))
 
+            .logout()
+                .logoutSuccessHandler(logoutSuccessHandler)
+                .and()
+
             .authorizeExchange()
-            .anyExchange().authenticated()
+                .anyExchange().authenticated()
             .and()
 
             .build();
