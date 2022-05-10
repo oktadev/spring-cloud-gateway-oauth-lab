@@ -1,0 +1,496 @@
+= Spring Cloud Gateway + OAuth 2.0/OIDC Lab
+
+== Overview
+
+This lab will use Spring Cloud Gateway to secure a REST API and a Spring MVC application. Only the Gateway is involved with the OIDC/OAuth 2.0 dance.
+
+Each module runs on a different port, the applications routed through the gateway use different context roots (`/api` and `/mvc`) to make it clear which application is targeted.
+
+**Project Modules:**
+
+- gateway - `https://localhost:8080/` +
+Spring Cloud Gateway
+- troopers-api - `https://localhost:8888/api/` +
+REST API, that validates OAuth Access Tokens
+- troopers-mvc - `https://localhost:8000/mvc/` +
+A Spring MVC Thymeleaf application
+
+If you want to learn more about OIDC and OAuth, see https://developer.okta.com/blog/2019/10/21/illustrated-guide-to-oauth-and-oidc[An Illustrated Guide to OAuth and OpenID Connect]!
+
+**Prerequisites:**
+
+- Java 11+ - https://sdkman.io/
+- Apache Maven - https://sdkman.io/
+- Docker - to start Redis - for session storage
+- Favorite IDE
+- Okta CLI - https://cli.okta.com/ +
+
+GitHub repo: https://github.com/oktadev/spring-cloud-gateway-oauth-lab
+
+This repo will have branches that correspond to the start of section (for steps where the code has changed), so if you get lot or need to jump ahead go for it.
+
+== Setup
+
+Get the code:
+
+[source,shell]
+----
+git clone https://github.com/oktadev/spring-cloud-gateway-oauth-lab.git -b step-01
+cd spring-cloud-gateway-oauth-lab
+----
+
+Bootstrap the application's OAuth configuration, using the Okta CLI.
+
+[NOTE]
+====
+Nothing in this lab Okta specific, you could sub out Okta for your favorite IdP, but I probably cannot help you if you run into problems.
+
+.Want to use Keycloak?
+[%collapsible]
+=====
+
+Follow https://www.keycloak.org/getting-started/getting-started-docker[this getting started guide]. A few things to note:
+
+* Change the docker bind port to something else, as 8080 is used by this example: `docker run -p 9090:8080 ...`
+* You will need to set the user's email address (something like `foo@example.com` will work)
+* Change the client **Access Type** to `confidential`
+* Update `.okta.env` with your client ID and secret, and set the issuer to `http://localhost:9090/realms/master`
+
+=====
+====
+
+[source,shell]
+----
+okta start
+----
+
+Running `okta start` does a few different things:
+
+* Creates an Okta org (an account) for you - You will be prompted for an email address, (it needs to be a valid email account).
+* Creates an OIDC application with the following configuration:
+** A redirect URI - http://localhost:8080/login/oauth2/code/okta +
+    This is the default format Spring Security defaults to `/login/oauth2/code/{name}`. The IdP needs to know this ahead of time to know it's safe to redirect there
+** Similar the logout URI - After logging out go to `/` (we will cover this later)
+** Grants permission for everybody in your Okta org to access the application (which... if you are following along, is just you)
+** Writes a configuration file `.okta.env` to the root of the project (containing, the issuer client id, client secret)
+
+IMPORTANT: Shout out to `spring-dotenv` - https://github.com/paulschwarz/spring-dotenv
+You probably have your own way of dealing with secrets, but this is a great project for simple things!
+
+== 1. Start Redis
+
+This example, uses Redis for session storage.
+
+Start up Redis using Docker:
+
+[source,shell]
+----
+docker run -p6379:6379 redis:6.2.7-alpine
+----
+
+The rest of this lab assumes Redis is running on the default port with no auth.
+
+If you want to add credentials, awesome, go for it! But it's out of scope for this lab.
+
+TIP: You can see all of the sessions by querying Redis `redis-cli keys 'spring:session:sessions:*'`
+
+== 2. Start the gateway
+
+The Gateway application starts off as a minimal application configured to use Spring Security's OAuth integration.  Take a look at the `GatewayApplication` class.
+
+Start it up!
+
+[source,shell]
+----
+cd gateway
+mvn spring-boot:run
+----
+
+NOTE: You should be able to start all of these applications in your IDE.  If you are using IntelliJ, make sure you set the **Working Directory** to `$MODULE_DIR$`, otherwise you will see errors about configuration properties not being found.
+
+WARNING: If you are on a M1 Mac, you will see a `java.lang.UnsatisfiedLinkError: no netty_resolver_dns_native_macos_aarch_64` error.  You can ignore this. Netty will fall back to a Java implementation.
+
+== 3. Log in!
+
+The gateway application has a single endpoint `/user` for debugging purposes. Open this up in a private/incognito browser: `http://localhost:8080/user`
+
+NOTE: If you open in the same browser you registered you will already be logged in.
+
+You should see a JSON object with your user's information.
+
+The gateway is up and running and configured for auth, but it really isn't doing anything yet...
+
+== 4. Start up the REST API service
+
+The `trooper-api` directory contains a simple little CRUD application for managing Stormtroopers.
+
+The application runs on port `8888` with a context path of `/api`
+
+Nothing too special here, but before going any further look at the `filterChain()` method in `TrooperApiApplication`.
+
+[source,java]
+----
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+
+        return http
+            .authorizeRequests()
+                .anyRequest().authenticated() // all request require auth
+                .and()
+            .oauth2ResourceServer().jwt().and().and() // validate JWT bearer token from header
+            .sessionManagement().disable() // no Sessions
+            .build();
+    }
+----
+
+NOTE: The issuer URI used for the JWT validation is configured in the `application.yml`.
+
+Start the REST API app:
+
+[source,shell]
+----
+cd troopers-api
+mvn spring-boot:run
+----
+
+== 5. Access the REST API
+
+Open your terminal and access the REST API:
+
+[source,shell]
+----
+curl -v localhost:8888/api/
+
+# or with HTTPie
+http :8888/api/
+----
+
+This will return a `401` with a `WWW-Authenticate: Bearer` header indicating that authentication is required.
+
+[source,http]
+----
+HTTP/1.1 401
+...
+WWW-Authenticate: Bearer
+...
+----
+
+To access the API you will need an access token; the gateway app has one that we can use!
+
+== 6. Configure the gateway to route the API
+
+Add a route in the gateway's `application.yml`
+
+[source,yml]
+----
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: troopers-api
+          uri: http://localhost:8888/
+          predicates:
+            - Path=/api/**
+          filters:
+            # Include the access token as a Bearer token
+            - TokenRelay=
+----
+
+The `TokenRelay` part is important here, this will include `Authorization: Bearer ${TOKEN}` header in each request from the gateway to the troopers API.
+
+Restart the gateway application and make a request in your browser to: `http://localhost:8080/api/`.
+
+You will see a JSON list of ten stormtroopers.
+
+NOTE: Make sure you use port `8080`, otherwise the request will not go through the gateway.
+
+From the browser/user's perspective, this list of troopers was accessed using a session cookie (after the gateway authenticated with the IdP, a session cookie was set). However, the trooper-api application didn't need to deal with sessions, just validating an existing access token.
+
+== 7. Start Spring MVC app
+
+This next section will take a _legacy_ Spring MVC application and move it behind the Gateway, which is already secured.
+
+NOTE: There are a few gotchas that I'll point out along the way.
+
+Start the MVC application.
+
+[source,shell]
+----
+cd troopers-mvc
+mvn spring-boot:run
+----
+
+The application uses a generated password (we will remove this in the next steps)
+You can find the password in the application log, it will look something like:
+
+[source,txt]
+----
+Using generated security password: 9262c560-6d1c-42a2-aa3a-2d07951863e3
+----
+
+NOTE: This password changes each time you restart the application.
+
+Access the application at `http://localhost:8000/mvc`, and sign-in with the username of `user` and the password from above.
+
+Navigate around the application; it's only a couple of pages.
+
+NOTE: This application contains code copied from the REST example, those classes are NOT relevant for this lab, not sharing the code was intentional to keep the focus on the security bits.
+
+== 8. Move MVC app behind Gateway
+
+Open the Gateway app's `application.yml` and add a new route under `spring.cloud.gateway.routes`:
+
+[source,yaml]
+----
+        - id: troopers-mvc
+          uri: http://localhost:8000/
+          predicates:
+            - Path=/mvc/**
+----
+
+In the `GatewayApplication` also add simple redirect from `/` to `/mvc/`, so when you forget to type `/mvc/` you don't get a 404:
+
+[source,java]
+----
+@Controller
+static class IndexRedirect {
+    @GetMapping("/")
+    public Mono<ResponseEntity<String>> index() {
+        return Mono.just(new HttpHeaders())
+            .doOnNext(header -> header.add("Location", "/mvc/"))
+            .map(header -> new ResponseEntity<>(null, header, HttpStatus.MOVED_PERMANENTLY));
+    }
+}
+----
+
+Restart the gateway, clear your cookies, and access the MVC app through the gateway: `http:/localhost:8080/mvc/`
+
+You will notice you need to log in twice, once with an OAuth 2.0 redirect and again using the form auth, not idea, let's fix that!
+
+== 9. Pass user from Gateway to MVC app
+
+One strategy for dealing with legacy applications is passing the username to the downstream application in a `X-Forward-User` header.
+
+In the Gateway application, add a `GlobalFilter` bean that will add an `X-Forward-User` header to each request:
+
+[source,java]
+----
+@Bean
+public GlobalFilter customGlobalFilter() {
+    return (exchange, chain) -> exchange.getPrincipal()
+        .map(Principal::getName)
+        .map(userName -> {
+            //adds header to proxied request
+            exchange.getRequest().mutate().header("X-Forward-User", userName).build();
+            return exchange;
+        })
+        .flatMap(chain::filter);
+}
+----
+
+Restart the gateway!
+
+In `TrooperMvcApplication` update the `filterChain()` method by removing the `formLogin()` and adding a filter to read the `X-Forwarded-User` header:
+
+[source,java]
+----
+@Bean
+public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+
+    RequestHeaderAuthenticationFilter filter = new RequestHeaderAuthenticationFilter();
+    filter.setAuthenticationManager(authenticationManager());
+    filter.setPrincipalRequestHeader("X-Forward-User");
+
+    return http
+        .authorizeRequests()
+            .anyRequest().authenticated()
+            .and()
+        .addFilter(filter)
+        .requestCache().disable()
+        .build();
+}
+
+// PLACE HOLDER for custom implementation, database, ldap lookup, etc
+private AuthenticationManager authenticationManager() {
+    return authentication -> {
+        // Replace this logic with something that looks up your users
+        authentication.setAuthenticated(true);
+        return authentication;
+    };
+}
+----
+
+This MVC application makes use of a session; you need to tell Spring Security to use a different session cookie, otherwise, both applications will use the same cookie name, with different values.
+
+[source,java]
+----
+@Bean
+public CookieSerializer cookieSerializer() {
+    DefaultCookieSerializer cookieSerializer = new DefaultCookieSerializer();
+    cookieSerializer.setCookieName("CUSTOM-SESSION");
+    cookieSerializer.setUseBase64Encoding(false);
+    return cookieSerializer;
+}
+----
+
+Restart the MVC application, clear your cookies, and then access: `http://localhost:8080/mvc/`
+
+== 10. Share Session between Gateway and MVC apps
+
+Update the MVC apps `application.yml` to use the same Redis configuration the gateway app is using:
+
+[source,yml]
+----
+spring:
+  session:
+    store-type: redis
+    redis:
+      flush-mode: on-save
+      namespace: spring:session
+----
+
+In `TrooperMvcApplication` update the `cookieSerializer()` method created in the previous step, and remove the custom session cookie name.
+
+[source,diff]
+----
+DefaultCookieSerializer cookieSerializer = new DefaultCookieSerializer();
+- cookieSerializer.setCookieName("CUSTOM-SESSION");
+cookieSerializer.setUseBase64Encoding(false);
+----
+
+In the Gateway's `application.yml` add the `SaveSession` filter to ensure the session is persisted before the proxying the request to the MVC application:
+
+[source,yml]
+----
+          filters:
+            - SaveSession=
+----
+
+NOTE: Fun with YAML, the `fitlers` node is at the same level as `predicates` node.
+
+Restart the Gateway and MVC apps, clear your cookies, and then access the app again `http://localhost:8080/mvc/`
+
+Check your browser's network log, you will see a single `SESSION` cookie now.
+
+== 11. Add ability to log out
+
+Update the MVC application to add a logout button, uncomment the code in the button in `troopers-mvc/src/main/resources/templates/fragments/header.html`
+
+[source,html]
+----
+<form method="post"
+      action="/logout"
+      sec:authorize="isAuthenticated()"
+      class="d-flex">
+    <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}" />
+    <button id="logout-button" type="submit" class="btn btn-danger">Logout</button>
+</form>
+----
+
+There are some differences between how Spring Security works with WebFlux and Servlet applications, one of those differences is how CSRF tokens are stored.  In the interest of time, update both the Gateway and the MVC app to use a Cookie CSRF repository:
+
+Update the `TrooperMvcApplication.filterChain()` method to include the CSRF configuration:
+
+[source,java]
+----
+@Bean
+public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+
+    RequestHeaderAuthenticationFilter filter = new RequestHeaderAuthenticationFilter();
+    filter.setAuthenticationManager(authenticationManager());
+    filter.setPrincipalRequestHeader("X-Forward-User");
+
+    CookieCsrfTokenRepository csrfTokenRepository = new CookieCsrfTokenRepository();
+    csrfTokenRepository.setCookiePath("/");
+
+    return http
+        // Form login, see log file for generated password, username is... `user`
+        .formLogin().and()
+
+        .authorizeRequests()
+            .anyRequest().authenticated()
+            .and()
+        .addFilter(filter)
+        .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository))
+        .requestCache().disable()
+        .build();
+}
+----
+
+Update the `GatewayApplication.springWebFilterChain()` method to include the CSRF configuration:
+
+[source,java]
+----
+@Bean
+SecurityWebFilterChain springWebFilterChain(ServerHttpSecurity http) throws Exception {
+
+    CookieServerCsrfTokenRepository csrfTokenRepository = new CookieServerCsrfTokenRepository();
+    csrfTokenRepository.setCookiePath("/");
+
+    return http
+        .oauth2Login().and()
+
+        .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository))
+
+        .authorizeExchange()
+            .anyExchange().authenticated()
+            .and()
+
+        .build();
+}
+----
+
+Restart the gateway and MVC applications. You should now see a logout button! Press it.
+
+This logs the user out and then redirects you back to `http://localhost:8080/login?logout`, which is not super useful in our case.
+
+Update the address bar to `http://localhost:8080/mvc/`; you will be automatically redirected and logged in.
+
+What happened?
+
+== 12. Logout Options
+
+When you logged out, the user's session was killed in the application, but NOT state of the IdP.  This is often what we want; for example, if your application allows sign-in with GitHub, your app cannot force a user to log out.
+
+OpenID Connect has a solution for this; it's called "RP-Initiated Logout" if that's hard to remember, think of it as "SSO Logout".
+For more details, see: https://developer.okta.com/blog/2020/03/27/spring-oidc-logout-options[OpenID Connect Logout Options with Spring Boot].
+
+SSO-Logout works great when apps are all managed by one company or like in this example, you only have one application.
+
+Update the Gateway application's `springWebFilterChain()` method, to configure the `OidcClientInitiatedServerLogoutSuccessHandler`.
+
+[source,java]
+----
+@Bean
+SecurityWebFilterChain springWebFilterChain(ServerHttpSecurity http, ReactiveClientRegistrationRepository clientRegistrationRepository) throws Exception {
+
+    OidcClientInitiatedServerLogoutSuccessHandler logoutSuccessHandler = new OidcClientInitiatedServerLogoutSuccessHandler(clientRegistrationRepository);
+    logoutSuccessHandler.setPostLogoutRedirectUri("{baseUrl}/");
+
+    CookieServerCsrfTokenRepository csrfTokenRepository = new CookieServerCsrfTokenRepository();
+    csrfTokenRepository.setCookiePath("/");
+
+    return http
+        .oauth2Login().and()
+
+        .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository))
+
+        .logout()
+            .logoutSuccessHandler(logoutSuccessHandler)
+            .and()
+
+        .authorizeExchange()
+            .anyExchange().authenticated()
+            .and()
+
+        .build();
+}
+----
+
+Just like the redirect URI used when an application logs in, this logout redirect URI also needs to be registered with the IdP (you did this in the first step).
+
+Restart the gateway, open up the network tab in your browser's dev tools, ensure that "preserve log" is checked, and try to log out again.
+
+This time, the application ends the local session, tells the IdP to logout, and then redirects to `http://localhost:8080/`.  Since this is a protected route, this redirects the user back to a login page.
+
+NOTE: If your application allows anonymous access to the root page, they would see that instead of the last redirect to the login page.
